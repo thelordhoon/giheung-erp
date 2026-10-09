@@ -396,7 +396,7 @@ export default function App() {
         
         <main className="p-6 space-y-6 max-w-7xl mx-auto w-full">
           <div className="flex justify-between items-center flex-wrap gap-4">
-            <h1 className="text-xl font-bold text-slate-900">기흥 조명 자재 관리 ERP</h1>
+            <h1 className="text-xl font-bold text-slate-900">기흥 조명 자재 관리</h1>
             <div className="flex gap-3 flex-wrap">
               <button 
                 onClick={() => { resetMaterialForm(); setModalType('addMaterial'); }}
