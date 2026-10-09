@@ -25,14 +25,13 @@ export default function App() {
 
   // 신규/수정 자재 폼 상태
   const [editingId, setEditingId] = useState(null);
-  const [originalName, setOriginalName] = useState(''); // 수정 전 품목명 (BOM 매칭용)
+  const [originalName, setOriginalName] = useState('');
   const [newMaterialName, setNewMaterialName] = useState('');
   const [newCode, setNewCode] = useState('');
   const [newCategory, setNewCategory] = useState('모듈');
   const [newStock, setNewStock] = useState('');
   const [newSafeStock, setNewSafeStock] = useState('');
 
-  // 동적 BOM 입력/수정 리스트 [{ id?, materialName: '', qty: '' }]
   const [dynamicBomItems, setDynamicBomItems] = useState([{ materialName: '', qty: '' }]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -147,7 +146,7 @@ export default function App() {
     }
   }
 
-  // 완제품 BOM 출고 처리
+  // 완제품 BOM 일괄 출고 처리 (완제품 재고 차감 + 하위 부자재 동시 차감)
   async function handleBomOutbound(e) {
     e.preventDefault();
     if (!selectedProduct || !productQty || !bomRefNo) {
@@ -158,6 +157,16 @@ export default function App() {
     const qtyMultiplier = parseInt(productQty, 10);
     if (qtyMultiplier <= 0) {
       alert('출고 수량은 1 이상이어야 합니다.');
+      return;
+    }
+
+    const targetProductMat = materials.find(m => m.name === selectedProduct);
+    if (!targetProductMat) {
+      alert('선택한 완제품이 자재 재고 목록에 존재하지 않습니다.');
+      return;
+    }
+    if (targetProductMat.stock < qtyMultiplier) {
+      alert(`완제품 [${selectedProduct}]의 현재고가 부족합니다! (현재고: ${targetProductMat.stock}개, 출고 요청량: ${qtyMultiplier}개)`);
       return;
     }
 
@@ -179,6 +188,28 @@ export default function App() {
       setSubmitting(true);
       const today = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
 
+      // 완제품 자체 재고 차감 및 로그 기록
+      const newProductStock = targetProductMat.stock - qtyMultiplier;
+      const { error: prodUpdateError } = await supabase
+        .from('materials')
+        .update({ stock: newProductStock })
+        .eq('id', targetProductMat.id);
+
+      if (prodUpdateError) throw prodUpdateError;
+
+      await supabase.from('stock_logs').insert([
+        {
+          date: today,
+          type: '출고(완제품)',
+          material_name: selectedProduct,
+          quantity: `-${qtyMultiplier.toLocaleString()}`,
+          remaining: newProductStock.toLocaleString(),
+          ref: bomRefNo,
+          status: '완료'
+        }
+      ]);
+
+      // 각 하위 부자재 재고 차감 및 로그 기록
       for (const bom of currentBomList) {
         const targetMat = materials.find(m => m.name === bom.material_name);
         const requiredQty = bom.quantity_per_unit * qtyMultiplier;
@@ -195,7 +226,7 @@ export default function App() {
           {
             date: today,
             type: '출고(BOM)',
-            material_name: `${targetMat.name} (${selectedProduct} 출고)`,
+            material_name: `${targetMat.name} (${selectedProduct} 부자재 소요)`,
             quantity: `-${requiredQty.toLocaleString()}`,
             remaining: newStock.toLocaleString(),
             ref: bomRefNo,
@@ -204,7 +235,7 @@ export default function App() {
         ]);
       }
 
-      alert(`완제품 [${selectedProduct}] ${qtyMultiplier}개 출고에 따른 부자재 일괄 차감이 완료되었습니다!`);
+      alert(`완제품 [${selectedProduct}] ${qtyMultiplier}개 및 하위 부자재 일괄 차감이 완료되었습니다!`);
       setModalType(null);
       setSelectedProduct('');
       setProductQty('');
@@ -218,7 +249,26 @@ export default function App() {
     }
   }
 
-  // 동적 BOM 행 조절
+  // 입출고 내역 삭제 (확인창 후 바로 삭제)
+  async function handleDeleteLog(id) {
+    if (!window.confirm("정말 이 입출고 내역을 삭제하시겠습니까?")) return;
+
+    try {
+      const { error } = await supabase
+        .from('stock_logs')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      alert("입출고 내역이 삭제되었습니다.");
+      fetchData();
+    } catch (error) {
+      console.error("삭제 에러:", error.message);
+      alert("삭제에 실패했습니다.");
+    }
+  }
+
   function addDynamicBomRow() {
     setDynamicBomItems([...dynamicBomItems, { materialName: '', qty: '' }]);
   }
@@ -235,7 +285,6 @@ export default function App() {
     setDynamicBomItems(list);
   }
 
-  // 신규 또는 수정 자재 저장 처리
   async function handleSaveMaterial(e) {
     e.preventDefault();
     if (!newMaterialName || !newCode || !newCategory || newStock === '' || newSafeStock === '') {
@@ -247,7 +296,6 @@ export default function App() {
       setSubmitting(true);
 
       if (modalType === 'editMaterial') {
-        // 1. 자재 정보 수정
         const { error } = await supabase
           .from('materials')
           .update({
@@ -261,7 +309,6 @@ export default function App() {
 
         if (error) throw error;
 
-        // 2. 완제품인 경우 기존 레시피 삭제 후 새로 등록
         if (newCategory === '완제품') {
           await supabase.from('bom_recipes').delete().eq('product_name', originalName);
 
@@ -278,13 +325,11 @@ export default function App() {
             if (bomError) throw bomError;
           }
         } else {
-          // 완제품에서 일반 자재로 변경된 경우 기존 레시피가 있다면 삭제
           await supabase.from('bom_recipes').delete().eq('product_name', originalName);
         }
 
         alert('자재 정보 및 레시피가 성공적으로 수정되었습니다!');
       } else {
-        // 신규 자재 등록
         const { error: matError } = await supabase.from('materials').insert([
           {
             name: newMaterialName,
@@ -325,7 +370,6 @@ export default function App() {
     }
   }
 
-  // 자재 삭제 처리
   async function handleDeleteMaterial(id, name, category) {
     if (!window.confirm(`정말 [${name}] 자재를 삭제하시겠습니까?`)) return;
 
@@ -333,7 +377,6 @@ export default function App() {
       const { error } = await supabase.from('materials').delete().eq('id', id);
       if (error) throw error;
 
-      // 완제품이었다면 레시피도 함께 삭제
       if (category === '완제품') {
         await supabase.from('bom_recipes').delete().eq('product_name', name);
       }
@@ -346,7 +389,6 @@ export default function App() {
     }
   }
 
-  // 수정 모달 열기 (기존 레시피 불러오기 포함)
   function openEditModal(item) {
     setEditingId(item.id);
     setOriginalName(item.name);
@@ -356,7 +398,6 @@ export default function App() {
     setNewStock(item.stock);
     setNewSafeStock(item.safe_stock ?? 1000);
 
-    // 해당 완제품의 기존 BOM 레시피 불러오기
     if (item.category === '완제품') {
       const existingBom = bomRecipes
         .filter(b => b.product_name === item.name)
@@ -396,7 +437,7 @@ export default function App() {
         
         <main className="p-6 space-y-6 max-w-7xl mx-auto w-full">
           <div className="flex justify-between items-center flex-wrap gap-4">
-            <h1 className="text-xl font-bold text-slate-900">기흥 조명 자재 관리(모니터_PC 기준으로 제작 했습니다.</h1>
+            <h1 className="text-xl font-bold text-slate-900">기흥 조명 자재 관리 ERP</h1>
             <div className="flex gap-3 flex-wrap">
               <button 
                 onClick={() => { resetMaterialForm(); setModalType('addMaterial'); }}
@@ -425,15 +466,16 @@ export default function App() {
             </div>
           </div>
 
-          <DashboardCards />
+         <DashboardCards materials={materials} />
           <MaterialTable materials={materials} onEdit={openEditModal} onDelete={(id, name) => {
             const item = materials.find(m => m.id === id);
             handleDeleteMaterial(id, name, item?.category);
           }} />
-          <StockLogTable logs={logs} />
+          
+          {/* 전체 입출고 내역 스크롤 지원 및 삭제 기능 연동 */}
+          <StockLogTable logs={logs} onDeleteLog={handleDeleteLog} />
         </main>
 
-        {/* 모달 팝업 영역 */}
         {modalType && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4 animate-fade-in max-h-[90vh] overflow-y-auto">
@@ -453,7 +495,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* 1. 완제품 BOM 출고 */}
               {modalType === 'bomOutbound' ? (
                 <form onSubmit={handleBomOutbound} className="space-y-4">
                   <div>
@@ -461,7 +502,7 @@ export default function App() {
                     <select 
                       value={selectedProduct} 
                       onChange={(e) => setSelectedProduct(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white cursor-pointer"
                       required
                     >
                       <option value="">완제품을 선택하세요</option>
@@ -534,7 +575,6 @@ export default function App() {
                   </div>
                 </form>
               ) : modalType === 'addMaterial' || modalType === 'editMaterial' ? (
-                /* 2. 자재 등록 및 수정 폼 (완제품일 경우 레시피 수정 포함) */
                 <form onSubmit={handleSaveMaterial} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">품목명 (자재명 또는 완제품명)</label>
@@ -565,7 +605,7 @@ export default function App() {
                       <select 
                         value={newCategory}
                         onChange={(e) => setNewCategory(e.target.value)}
-                        className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                        className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white cursor-pointer"
                         required
                       >
                         <option value="모듈">모듈</option>
@@ -601,7 +641,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 완제품인 경우 BOM(레시피) 설정/수정 섹션 표시 */}
                   {newCategory === '완제품' && (
                     <div className="bg-emerald-50/50 border border-emerald-200 rounded-lg p-3 space-y-3">
                       <div className="flex justify-between items-center">
@@ -623,7 +662,7 @@ export default function App() {
                             <select 
                               value={item.materialName}
                               onChange={(e) => handleDynamicBomChange(index, 'materialName', e.target.value)}
-                              className="flex-1 border rounded-lg p-2 text-xs bg-white outline-none"
+                              className="flex-1 border rounded-lg p-2 text-xs bg-white outline-none cursor-pointer"
                             >
                               <option value="">부자재 선택</option>
                               {materials.map((m) => (
@@ -658,22 +697,25 @@ export default function App() {
                   </div>
                 </form>
               ) : (
-                /* 3. 일반 입출고 폼 */
                 <form onSubmit={handleSubmitStock} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">자재 선택</label>
                     <select 
                       value={selectedMaterial} 
                       onChange={(e) => setSelectedMaterial(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer"
                       required
                     >
                       <option value="">자재를 선택하세요</option>
-                      {materials.map((m) => (
-                        <option key={m.id} value={m.name}>
-                          {m.name} (현재고: {m.stock.toLocaleString()}개)
-                        </option>
-                      ))}
+                      {materials && materials.length > 0 ? (
+                        materials.map((m) => (
+                          <option key={m.id} value={m.name}>
+                            {m.name} ({m.category} / 현재고: {(m.stock ?? 0).toLocaleString()}개)
+                          </option>
+                        ))
+                      ) : (
+                        <option value="" disabled>등록된 자재가 없습니다</option>
+                      )}
                     </select>
                   </div>
 
@@ -690,7 +732,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="path block text-sm font-medium text-slate-700 mb-1">참조 번호 (Ref)</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">참조 번호 (Ref)</label>
                     <input 
                       type="text" 
                       placeholder="예: #RM1026A" 
@@ -703,7 +745,9 @@ export default function App() {
 
                   <div className="flex justify-end gap-2 pt-3 border-t">
                     <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 border rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition cursor-pointer">취소</button>
-                    <button type="submit" disabled={submitting} className={`px-4 py-2 rounded-lg text-sm text-white transition cursor-pointer ${modalType === 'inbound' ? 'bg-slate-800 hover:bg-slate-900' : 'bg-blue-600 hover:bg-blue-700'}`}>{submitting ? '처리 중...' : '등록하기'}</button>
+                    <button type="submit" disabled={submitting} className={`px-4 py-2 rounded-lg text-sm text-white transition cursor-pointer ${modalType === 'inbound' ? 'bg-slate-800 hover:bg-slate-900' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                      {submitting ? '처리 중...' : '등록하기'}
+                    </button>
                   </div>
                 </form>
               )}
