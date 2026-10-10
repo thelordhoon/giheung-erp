@@ -11,19 +11,16 @@ export default function App() {
   const [bomRecipes, setBomRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 모달 상태 ('inbound' | 'outbound' | 'bomOutbound' | 'addMaterial' | 'editMaterial' | null)
   const [modalType, setModalType] = useState(null);
   const [selectedMaterial, setSelectedMaterial] = useState('');
   const [quantity, setQuantity] = useState('');
   const [refNo, setRefNo] = useState('');
 
-  // 완제품 BOM 출고 상태
   const [selectedProduct, setSelectedProduct] = useState('');
   const [productQty, setProductQty] = useState('');
   const [bomRefNo, setBomRefNo] = useState('');
   const [currentBomList, setCurrentBomList] = useState([]);
 
-  // 신규/수정 자재 폼 상태
   const [editingId, setEditingId] = useState(null);
   const [originalName, setOriginalName] = useState('');
   const [newMaterialName, setNewMaterialName] = useState('');
@@ -72,7 +69,9 @@ export default function App() {
     }
   }
 
-  const productList = [...new Set(bomRecipes.map(b => b.product_name))];
+  const productList = materials
+    .filter(m => m.category === '완제품')
+    .map(m => m.name);
 
   useEffect(() => {
     if (selectedProduct) {
@@ -83,7 +82,6 @@ export default function App() {
     }
   }, [selectedProduct, bomRecipes]);
 
-  // 단품 입출고 처리
   async function handleSubmitStock(e) {
     e.preventDefault();
     if (!selectedMaterial || !quantity || !refNo) {
@@ -146,7 +144,6 @@ export default function App() {
     }
   }
 
-  // 완제품 BOM 일괄 출고 처리 (완제품 재고 차감 + 하위 부자재 동시 차감)
   async function handleBomOutbound(e) {
     e.preventDefault();
     if (!selectedProduct || !productQty || !bomRefNo) {
@@ -157,16 +154,6 @@ export default function App() {
     const qtyMultiplier = parseInt(productQty, 10);
     if (qtyMultiplier <= 0) {
       alert('출고 수량은 1 이상이어야 합니다.');
-      return;
-    }
-
-    const targetProductMat = materials.find(m => m.name === selectedProduct);
-    if (!targetProductMat) {
-      alert('선택한 완제품이 자재 재고 목록에 존재하지 않습니다.');
-      return;
-    }
-    if (targetProductMat.stock < qtyMultiplier) {
-      alert(`완제품 [${selectedProduct}]의 현재고가 부족합니다! (현재고: ${targetProductMat.stock}개, 출고 요청량: ${qtyMultiplier}개)`);
       return;
     }
 
@@ -188,28 +175,18 @@ export default function App() {
       setSubmitting(true);
       const today = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
 
-      // 완제품 자체 재고 차감 및 로그 기록
-      const newProductStock = targetProductMat.stock - qtyMultiplier;
-      const { error: prodUpdateError } = await supabase
-        .from('materials')
-        .update({ stock: newProductStock })
-        .eq('id', targetProductMat.id);
-
-      if (prodUpdateError) throw prodUpdateError;
-
       await supabase.from('stock_logs').insert([
         {
           date: today,
           type: '출고(완제품)',
           material_name: selectedProduct,
           quantity: `-${qtyMultiplier.toLocaleString()}`,
-          remaining: newProductStock.toLocaleString(),
+          remaining: '조립출고',
           ref: bomRefNo,
           status: '완료'
         }
       ]);
 
-      // 각 하위 부자재 재고 차감 및 로그 기록
       for (const bom of currentBomList) {
         const targetMat = materials.find(m => m.name === bom.material_name);
         const requiredQty = bom.quantity_per_unit * qtyMultiplier;
@@ -235,7 +212,7 @@ export default function App() {
         ]);
       }
 
-      alert(`완제품 [${selectedProduct}] ${qtyMultiplier}개 및 하위 부자재 일괄 차감이 완료되었습니다!`);
+      alert(`완제품 [${selectedProduct}] ${qtyMultiplier}개 생산/출고 및 하위 부자재 일괄 차감이 완료되었습니다!`);
       setModalType(null);
       setSelectedProduct('');
       setProductQty('');
@@ -249,7 +226,6 @@ export default function App() {
     }
   }
 
-  // 입출고 내역 삭제 (확인창 후 바로 삭제)
   async function handleDeleteLog(id) {
     if (!window.confirm("정말 이 입출고 내역을 삭제하시겠습니까?")) return;
 
@@ -287,8 +263,17 @@ export default function App() {
 
   async function handleSaveMaterial(e) {
     e.preventDefault();
-    if (!newMaterialName || !newCode || !newCategory || newStock === '' || newSafeStock === '') {
-      alert('모든 항목을 입력해 주세요.');
+    if (!newMaterialName || !newCode || !newCategory) {
+      alert('필수 항목을 입력해 주세요.');
+      return;
+    }
+
+    const isFinished = newCategory === '완제품';
+    const stockVal = isFinished ? 0 : parseInt(newStock, 10);
+    const safeStockVal = isFinished ? 0 : parseInt(newSafeStock, 10);
+
+    if (!isFinished && (newStock === '' || newSafeStock === '')) {
+      alert('자재의 현재 수량과 안전재고를 입력해 주세요.');
       return;
     }
 
@@ -302,14 +287,14 @@ export default function App() {
             name: newMaterialName,
             code: newCode,
             category: newCategory,
-            stock: parseInt(newStock, 10),
-            safe_stock: parseInt(newSafeStock, 10)
+            stock: stockVal,
+            safe_stock: safeStockVal
           })
           .eq('id', editingId);
 
         if (error) throw error;
 
-        if (newCategory === '완제품') {
+        if (isFinished) {
           await supabase.from('bom_recipes').delete().eq('product_name', originalName);
 
           const bomInserts = dynamicBomItems
@@ -335,14 +320,14 @@ export default function App() {
             name: newMaterialName,
             code: newCode,
             category: newCategory,
-            stock: parseInt(newStock, 10),
-            safe_stock: parseInt(newSafeStock, 10)
+            stock: stockVal,
+            safe_stock: safeStockVal
           }
         ]);
 
         if (matError) throw matError;
 
-        if (newCategory === '완제품' && dynamicBomItems.length > 0) {
+        if (isFinished && dynamicBomItems.length > 0) {
           const bomInserts = dynamicBomItems
             .filter(item => item.materialName && item.qty)
             .map(item => ({
@@ -371,7 +356,7 @@ export default function App() {
   }
 
   async function handleDeleteMaterial(id, name, category) {
-    if (!window.confirm(`정말 [${name}] 자재를 삭제하시겠습니까?`)) return;
+    if (!window.confirm(`정말 [${name}] 품목을 삭제하시겠습니까?`)) return;
 
     try {
       const { error } = await supabase.from('materials').delete().eq('id', id);
@@ -381,7 +366,7 @@ export default function App() {
         await supabase.from('bom_recipes').delete().eq('product_name', name);
       }
 
-      alert('자재가 삭제되었습니다.');
+      alert('품목이 삭제되었습니다.');
       fetchData();
     } catch (error) {
       console.error('삭제 에러:', error.message);
@@ -425,62 +410,68 @@ export default function App() {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-900 text-white">
-        <p className="text-lg font-medium animate-pulse">기흥 ERP 데이터 로딩 중...</p>
+        <p className="text-base font-semibold tracking-wide animate-pulse">기흥 ERP 시스템 로딩 중...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-slate-100 font-sans text-slate-800 overflow-hidden">
+    <div className="flex h-screen bg-[#F8FAFC] font-sans text-slate-800 overflow-hidden">
       <div className="flex-1 flex flex-col overflow-y-auto relative w-full">
         <Header />
         
-        <main className="p-6 space-y-6 max-w-7xl mx-auto w-full">
-          <div className="flex justify-between items-center flex-wrap gap-4">
-            <h1 className="text-xl font-bold text-slate-900">기흥 조명 자재 관리 ERP</h1>
-            <div className="flex gap-3 flex-wrap">
+        <main className="p-8 space-y-8 max-w-7xl mx-auto w-full">
+          {/* 상단 타이틀 및 액션 버튼 그룹 */}
+          <div className="flex justify-between items-center flex-wrap gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div>
+              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                Smart Factory ERP
+              </span>
+              <h1 className="text-2xl font-black text-slate-900 mt-2">기흥 LED 조명 자재 관리</h1>
+              <p className="text-xs text-slate-400 mt-0.5">완제품 조립 생산 및 자재 입출고 통합 관리 시스템</p>
+            </div>
+            <div className="flex gap-2.5 flex-wrap">
               <button 
                 onClick={() => { resetMaterialForm(); setModalType('addMaterial'); }}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition shadow-sm cursor-pointer"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-semibold text-xs transition shadow-md shadow-emerald-600/20 active:scale-95 cursor-pointer flex items-center gap-1.5"
               >
-                + 신규 자재/완제품 등록
+                <span>✨ 신규 등록</span>
               </button>
               <button 
                 onClick={() => setModalType('bomOutbound')}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition shadow-sm cursor-pointer"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-semibold text-xs transition shadow-md shadow-indigo-600/20 active:scale-95 cursor-pointer flex items-center gap-1.5"
               >
-                📦 완제품 일괄 출고
+                <span>📦 완제품 일괄 출고</span>
               </button>
               <button 
                 onClick={() => setModalType('outbound')}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition shadow-sm cursor-pointer"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-semibold text-xs transition shadow-md shadow-blue-600/20 active:scale-95 cursor-pointer"
               >
                 + 단품 출고
               </button>
               <button 
                 onClick={() => setModalType('inbound')}
-                className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg font-medium text-sm transition shadow-sm cursor-pointer"
+                className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-semibold text-xs transition shadow-md shadow-slate-900/20 active:scale-95 cursor-pointer"
               >
                 + 단품 입고
               </button>
             </div>
           </div>
 
-         <DashboardCards materials={materials} />
-          <MaterialTable materials={materials} onEdit={openEditModal} onDelete={(id, name) => {
+          <DashboardCards materials={materials} />
+          <MaterialTable materials={materials} bomRecipes={bomRecipes} onEdit={openEditModal} onDelete={(id, name) => {
             const item = materials.find(m => m.id === id);
             handleDeleteMaterial(id, name, item?.category);
           }} />
           
-          {/* 전체 입출고 내역 스크롤 지원 및 삭제 기능 연동 */}
           <StockLogTable logs={logs} onDeleteLog={handleDeleteLog} />
         </main>
 
         {modalType && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4 animate-fade-in max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="text-lg font-bold text-slate-900">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-lg p-6 space-y-5 animate-fade-in max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+                <h3 className="text-base font-bold text-slate-900">
                   {modalType === 'inbound' && '📦 신규 자재 입고 등록'}
                   {modalType === 'outbound' && '🚚 단품 자재 출고 등록'}
                   {modalType === 'bomOutbound' && '📦 완제품 BOM 일괄 출고'}
@@ -489,7 +480,7 @@ export default function App() {
                 </h3>
                 <button 
                   onClick={() => setModalType(null)}
-                  className="text-slate-400 hover:text-slate-600 font-bold text-xl cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition cursor-pointer"
                 >
                   &times;
                 </button>
@@ -498,11 +489,11 @@ export default function App() {
               {modalType === 'bomOutbound' ? (
                 <form onSubmit={handleBomOutbound} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">출고할 완제품 선택</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">출고할 완제품 선택</label>
                     <select 
                       value={selectedProduct} 
                       onChange={(e) => setSelectedProduct(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white cursor-pointer"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                       required
                     >
                       <option value="">완제품을 선택하세요</option>
@@ -513,35 +504,35 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">출고 수량 (완제품 기준)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">출고 수량 (완제품 기준)</label>
                     <input 
                       type="number" 
                       placeholder="예: 10" 
                       value={productQty}
                       onChange={(e) => setProductQty(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">참조 번호 (Ref)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">참조 번호 (Ref)</label>
                     <input 
                       type="text" 
                       placeholder="예: #PROJ-BOM-001" 
                       value={bomRefNo}
                       onChange={(e) => setBomRefNo(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                       required
                     />
                   </div>
 
                   {selectedProduct && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
-                      <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 space-y-2">
+                      <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
                         🔍 하위 부자재 소요량 미리보기 (BOM Preview)
                       </h4>
-                      <div className="divide-y divide-slate-200 text-xs">
+                      <div className="divide-y divide-indigo-100 text-xs">
                         {currentBomList.map((bom, i) => {
                           const targetMat = materials.find(m => m.name === bom.material_name);
                           const currentStock = targetMat ? targetMat.stock : 0;
@@ -549,7 +540,7 @@ export default function App() {
                           const isLack = currentStock < req;
 
                           return (
-                            <div key={i} className="py-2 flex justify-between items-center">
+                            <div key={i} className="py-2.5 flex justify-between items-center">
                               <div>
                                 <span className="font-semibold text-slate-800">{bom.material_name}</span>
                                 <span className="text-slate-500 ml-1">(개당 {bom.quantity_per_unit}개 소요)</span>
@@ -569,88 +560,91 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className="flex justify-end gap-2 pt-3 border-t">
-                    <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 border rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition cursor-pointer">취소</button>
-                    <button type="submit" disabled={submitting} className="px-4 py-2 rounded-lg text-sm text-white bg-indigo-600 hover:bg-indigo-700 transition cursor-pointer">{submitting ? '처리 중...' : '완제품 출고 실행'}</button>
+                  <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setModalType(null)} className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition cursor-pointer">취소</button>
+                    <button type="submit" disabled={submitting} className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-md shadow-indigo-600/20 cursor-pointer">{submitting ? '처리 중...' : '완제품 출고 실행'}</button>
                   </div>
                 </form>
               ) : modalType === 'addMaterial' || modalType === 'editMaterial' ? (
                 <form onSubmit={handleSaveMaterial} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">품목명 (자재명 또는 완제품명)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">분류 선택</label>
+                    <select 
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none cursor-pointer font-bold text-emerald-700"
+                      required
+                    >
+                      <option value="모듈">자재 - 모듈</option>
+                      <option value="전원장치">자재 - 전원장치</option>
+                      <option value="부자재">자재 - 부자재</option>
+                      <option value="완제품">완제품 (조립형)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      {newCategory === '완제품' ? '완제품명' : '자재명'}
+                    </label>
                     <input 
                       type="text" 
-                      placeholder="예: LED 다운라이트 6인치" 
+                      placeholder={newCategory === '완제품' ? "예: LED 다운라이트 6인치" : "예: LED 칩셋 A타입"} 
                       value={newMaterialName}
                       onChange={(e) => setNewMaterialName(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                       required
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">품목코드 (Code)</label>
-                      <input 
-                        type="text" 
-                        placeholder="예: DL-6INCH-01" 
-                        value={newCode}
-                        onChange={(e) => setNewCode(e.target.value)}
-                        className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">분류 선택</label>
-                      <select 
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value)}
-                        className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white cursor-pointer"
-                        required
-                      >
-                        <option value="모듈">모듈</option>
-                        <option value="전원장치">전원장치</option>
-                        <option value="부자재">부자재</option>
-                        <option value="완제품">완제품</option>
-                      </select>
-                    </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">품목코드 (SKU/Code)</label>
+                    <input 
+                      type="text" 
+                      placeholder="예: DL-6INCH-01" 
+                      value={newCode}
+                      onChange={(e) => setNewCode(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                      required
+                    />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">현재 수량</label>
-                      <input 
-                        type="number" 
-                        placeholder="0" 
-                        value={newStock}
-                        onChange={(e) => setNewStock(e.target.value)}
-                        className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                        required
-                      />
+                  {newCategory !== '완제품' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">현재 수량</label>
+                        <input 
+                          type="number" 
+                          placeholder="0" 
+                          value={newStock}
+                          onChange={(e) => setNewStock(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">안전재고</label>
+                        <input 
+                          type="number" 
+                          placeholder="1000" 
+                          value={newSafeStock}
+                          onChange={(e) => setNewSafeStock(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                          required
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">안전재고</label>
-                      <input 
-                        type="number" 
-                        placeholder="1000" 
-                        value={newSafeStock}
-                        onChange={(e) => setNewSafeStock(e.target.value)}
-                        className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                        required
-                      />
-                    </div>
-                  </div>
+                  )}
 
                   {newCategory === '완제품' && (
-                    <div className="bg-emerald-50/50 border border-emerald-200 rounded-lg p-3 space-y-3">
+                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 space-y-3">
                       <div className="flex justify-between items-center">
-                        <label className="text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                        <label className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
                           🛠️ 완제품 구성 부자재 (BOM 레시피) 설정
                         </label>
                         <button 
                           type="button"
                           onClick={addDynamicBomRow}
-                          className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded transition cursor-pointer"
+                          className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition shadow-sm cursor-pointer"
                         >
                           + 부자재 추가
                         </button>
@@ -662,10 +656,10 @@ export default function App() {
                             <select 
                               value={item.materialName}
                               onChange={(e) => handleDynamicBomChange(index, 'materialName', e.target.value)}
-                              className="flex-1 border rounded-lg p-2 text-xs bg-white outline-none cursor-pointer"
+                              className="flex-1 bg-white border border-slate-200 rounded-xl p-2.5 text-xs outline-none cursor-pointer"
                             >
                               <option value="">부자재 선택</option>
-                              {materials.map((m) => (
+                              {materials.filter(m => m.category !== '완제품').map((m) => (
                                 <option key={m.id} value={m.name}>{m.name}</option>
                               ))}
                             </select>
@@ -674,13 +668,13 @@ export default function App() {
                               placeholder="소요수량" 
                               value={item.qty}
                               onChange={(e) => handleDynamicBomChange(index, 'qty', e.target.value)}
-                              className="w-24 border rounded-lg p-2 text-xs outline-none"
+                              className="w-24 bg-white border border-slate-200 rounded-xl p-2.5 text-xs outline-none"
                             />
                             {dynamicBomItems.length > 1 && (
                               <button 
                                 type="button"
                                 onClick={() => removeDynamicBomRow(index)}
-                                className="text-red-500 hover:text-red-700 font-bold px-1 cursor-pointer"
+                                className="text-red-400 hover:text-red-600 font-bold px-1.5 text-base cursor-pointer"
                               >
                                 &times;
                               </button>
@@ -691,24 +685,24 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className="flex justify-end gap-2 pt-3 border-t">
-                    <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 border rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition cursor-pointer">취소</button>
-                    <button type="submit" disabled={submitting} className="px-4 py-2 rounded-lg text-sm text-white bg-emerald-600 hover:bg-emerald-700 transition cursor-pointer">{submitting ? '저장 중...' : '저장하기'}</button>
+                  <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setModalType(null)} className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition cursor-pointer">취소</button>
+                    <button type="submit" disabled={submitting} className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-md shadow-emerald-600/20 cursor-pointer">{submitting ? '저장 중...' : '저장하기'}</button>
                   </div>
                 </form>
               ) : (
                 <form onSubmit={handleSubmitStock} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">자재 선택</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">자재 선택</label>
                     <select 
                       value={selectedMaterial} 
                       onChange={(e) => setSelectedMaterial(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
                       required
                     >
                       <option value="">자재를 선택하세요</option>
-                      {materials && materials.length > 0 ? (
-                        materials.map((m) => (
+                      {materials.filter(m => m.category !== '완제품').length > 0 ? (
+                        materials.filter(m => m.category !== '완제품').map((m) => (
                           <option key={m.id} value={m.name}>
                             {m.name} ({m.category} / 현재고: {(m.stock ?? 0).toLocaleString()}개)
                           </option>
@@ -720,32 +714,32 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">수량</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">수량</label>
                     <input 
                       type="number" 
                       placeholder="수량을 입력하세요 (예: 1000)" 
                       value={quantity}
                       onChange={(e) => setQuantity(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">참조 번호 (Ref)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">참조 번호 (Ref)</label>
                     <input 
                       type="text" 
                       placeholder="예: #RM1026A" 
                       value={refNo}
                       onChange={(e) => setRefNo(e.target.value)}
-                      className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                       required
                     />
                   </div>
 
-                  <div className="flex justify-end gap-2 pt-3 border-t">
-                    <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 border rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition cursor-pointer">취소</button>
-                    <button type="submit" disabled={submitting} className={`px-4 py-2 rounded-lg text-sm text-white transition cursor-pointer ${modalType === 'inbound' ? 'bg-slate-800 hover:bg-slate-900' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                  <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setModalType(null)} className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition cursor-pointer">취소</button>
+                    <button type="submit" disabled={submitting} className={`px-5 py-2.5 rounded-xl text-xs font-semibold text-white transition shadow-md cursor-pointer ${modalType === 'inbound' ? 'bg-slate-900 hover:bg-slate-800 shadow-slate-900/20' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'}`}>
                       {submitting ? '처리 중...' : '등록하기'}
                     </button>
                   </div>
