@@ -70,7 +70,8 @@ export default function MaterialTable({ materials = [], bomRecipes = [], onEdit,
                     <td className="py-3.5 px-4 font-semibold text-slate-900">
                       {item.name}
                     </td>
-                    <td className="py-3.5 px-4 text-slate-500 font-mono text-xs">
+                    {/* 품목코드: 폰트 두께와 진한 색상을 주어 또렷하게 개선 */}
+                    <td className="py-3.5 px-4 text-slate-700 font-mono text-xs font-semibold">
                       {item.code || '-'}
                     </td>
                     <td className="py-3.5 px-4">
@@ -80,30 +81,32 @@ export default function MaterialTable({ materials = [], bomRecipes = [], onEdit,
                         {item.category}
                       </span>
                     </td>
+                    {/* 현재 수량: 숫자와 '개' 단위의 폰트 굵기와 명도 차이를 없애고 진하게 통일 */}
                     <td className="py-3.5 px-4">
                       {isProduct ? (
-                        <span className="text-xs font-semibold text-indigo-600 bg-indigo-50/60 px-2 py-1 rounded">
+                        <span className="text-xs font-bold text-indigo-700 bg-indigo-50/80 px-2 py-1 rounded">
                           조립 생산 대기형
                         </span>
                       ) : (
-                        <span className={`font-bold ${isShortage ? 'text-red-600' : 'text-slate-900'}`}>
-                          {(item.stock ?? 0).toLocaleString()}개
+                        <span className={`font-bold text-sm ${isShortage ? 'text-red-600' : 'text-slate-900'}`}>
+                          {(item.stock ?? 0).toLocaleString()}
+                          <span className={`font-semibold ml-0.5 text-xs ${isShortage ? 'text-red-500' : 'text-slate-700'}`}>개</span>
                         </span>
                       )}
                     </td>
                     <td className="py-3.5 px-4">
                       {isProduct ? (
-                        <div className="text-xs text-slate-600 max-w-xs truncate" title={productBoms.map(b => `${b.material_name} (${b.quantity_per_unit}개)`).join(', ')}>
+                        <div className="text-xs text-slate-700 max-w-xs truncate font-medium" title={productBoms.map(b => `${b.material_name} (${b.quantity_per_unit}개)`).join(', ')}>
                           {productBoms.length > 0 ? (
                             <span>
-                              <strong className="text-slate-700">구성:</strong> {productBoms.map(b => `${b.material_name} ${b.quantity_per_unit}개`).join(', ')}
+                              <strong className="text-slate-900 font-semibold">구성:</strong> {productBoms.map(b => `${b.material_name} ${b.quantity_per_unit}개`).join(', ')}
                             </span>
                           ) : (
-                            <span className="text-amber-500">BOM 미설정</span>
+                            <span className="text-amber-600 font-semibold">BOM 미설정</span>
                           )}
                         </div>
                       ) : (
-                        <span className="text-slate-600">
+                        <span className="text-slate-800 font-semibold text-xs">
                           {(item.safe_stock ?? 1000).toLocaleString()}개
                         </span>
                       )}
@@ -112,13 +115,13 @@ export default function MaterialTable({ materials = [], bomRecipes = [], onEdit,
                       <div className="flex items-center justify-end gap-2">
                         <button 
                           onClick={() => onEdit(item)}
-                          className="px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition cursor-pointer"
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded transition cursor-pointer"
                         >
                           수정
                         </button>
                         <button 
                           onClick={() => onDelete(item.id, item.name)}
-                          className="px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
                         >
                           삭제
                         </button>
