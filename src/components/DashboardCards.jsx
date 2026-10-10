@@ -1,7 +1,10 @@
 import React from 'react';
 
 export default function DashboardCards({ materials = [] }) {
-  const shortageItems = materials.filter(m => (m.stock ?? 0) < (m.safe_stock ?? 1000));
+  // 완제품은 제외하고, 자재 및 부자재 중에서 현재고가 안전재고 미만인 품목만 추출
+  const shortageItems = materials.filter(m => 
+    m.category !== '완제품' && (m.stock ?? 0) < (m.safe_stock ?? 1000)
+  );
 
   return (
     <div className="w-full">
@@ -42,7 +45,7 @@ export default function DashboardCards({ materials = [] }) {
             )}
           </div>
           <span className="text-[11px] font-medium text-slate-300">
-            안전재고 기준 자동 집계
+            자재류 안전재고 기준 자동 집계
           </span>
         </div>
       </div>
