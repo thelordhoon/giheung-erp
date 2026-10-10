@@ -418,7 +418,7 @@ export default function App() {
     );
   }
 
-  // 부족 자재 목록 계산
+  // 부족 자재 목록 계산 (완제품 제외)
   const shortageItems = materials.filter(m => 
     m.category !== '완제품' && (m.stock ?? 0) < (m.safe_stock ?? 1000)
   );
@@ -535,25 +535,58 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 3. 최근 입출고 내역 요약 */}
+              {/* 3. 최근 입출고 내역 요약 (2번 레이아웃 적용: 줄바꿈 & 블록화) */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full uppercase">Log Summary</span>
                 <h3 className="text-base font-extrabold text-slate-900 mt-2">📋 최근 변동 내역 (최근 5건)</h3>
-                <div className="mt-4 space-y-2">
-                  {logs.slice(0, 5).map((log, i) => (
-                    <div key={i} className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex justify-between items-center text-xs">
-                      <div>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold mr-2 ${
-                          log.type === '입고' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
-                        }`}>{log.type}</span>
-                        <span className="font-bold text-slate-800">{log.material_name}</span>
+                
+                <div className="mt-4 space-y-3">
+                  {logs.slice(0, 5).map((log, i) => {
+                    const hasDetail = log.material_name.includes('(');
+                    let mainName = log.material_name;
+                    let detailText = '';
+
+                    if (hasDetail) {
+                      const parts = log.material_name.split('(');
+                      mainName = parts[0].trim();
+                      detailText = parts.slice(1).join('(').replace(/\)$/, '').trim();
+                    }
+
+                    const isOutbound = log.type.includes('출고');
+
+                    return (
+                      <div key={i} className="bg-slate-50 border border-slate-100 p-3.5 rounded-xl space-y-1.5">
+                        {/* 1줄: 태그(뱃지) + 날짜 */}
+                        <div className="flex justify-between items-center text-xs">
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                            isOutbound ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {log.type}
+                          </span>
+                          <span className="text-slate-400 text-[11px] font-medium">{log.date}</span>
+                        </div>
+
+                        {/* 2줄: 품목명 + 변동 수량 */}
+                        <div className="flex justify-between items-center gap-2 pt-0.5">
+                          <span className="font-extrabold text-slate-900 text-sm leading-tight">
+                            {mainName}
+                          </span>
+                          <span className={`font-black text-base whitespace-nowrap ${
+                            isOutbound ? 'text-rose-600' : 'text-emerald-600'
+                          }`}>
+                            {log.quantity}
+                          </span>
+                        </div>
+
+                        {/* 3줄: 부자재/용도 상세 설명 (있는 경우만 표시) */}
+                        {detailText && (
+                          <div className="text-[11px] text-slate-500 font-medium leading-relaxed bg-white/70 p-2 rounded-lg border border-slate-100">
+                            💡 {detailText}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <span className={`font-bold ${log.type === '입고' ? 'text-emerald-600' : 'text-rose-600'}`}>{log.quantity}</span>
-                        <span className="text-slate-400 text-[10px] block">{log.date}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
