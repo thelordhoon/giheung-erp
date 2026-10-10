@@ -11,6 +11,9 @@ export default function App() {
   const [bomRecipes, setBomRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // 모바일 확인용 뷰 토글 상태 (true면 모바일 요약 카드 모드)
+  const [mobileViewMode, setMobileViewMode] = useState(false);
+
   const [modalType, setModalType] = useState(null);
   const [selectedMaterial, setSelectedMaterial] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -415,6 +418,11 @@ export default function App() {
     );
   }
 
+  // 부족 자재 목록 계산
+  const shortageItems = materials.filter(m => 
+    m.category !== '완제품' && (m.stock ?? 0) < (m.safe_stock ?? 1000)
+  );
+
   return (
     <div className="flex h-screen bg-[#F8FAFC] font-sans text-slate-800 overflow-hidden">
       <div className="flex-1 flex flex-col overflow-y-auto relative w-full">
@@ -430,7 +438,18 @@ export default function App() {
               <h1 className="text-2xl font-black text-slate-900 mt-2">기흥 LED 조명 자재 관리</h1>
               <p className="text-xs text-slate-400 mt-0.5">완제품 조립 생산 및 자재 입출고 통합 관리 시스템</p>
             </div>
-            <div className="flex gap-2.5 flex-wrap">
+            
+            <div className="flex gap-2.5 flex-wrap items-center">
+              {/* 모바일 확인용 뷰 토글 버튼 */}
+              <button 
+                onClick={() => setMobileViewMode(!mobileViewMode)}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs transition shadow-sm cursor-pointer flex items-center gap-1.5 ${
+                  mobileViewMode ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>📱 모바일 확인용 요약 뷰 {mobileViewMode ? 'ON' : 'OFF'}</span>
+              </button>
+
               <button 
                 onClick={() => { resetMaterialForm(); setModalType('addMaterial'); }}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-semibold text-xs transition shadow-md shadow-emerald-600/20 active:scale-95 cursor-pointer flex items-center gap-1.5"
@@ -458,13 +477,97 @@ export default function App() {
             </div>
           </div>
 
-          <DashboardCards materials={materials} />
-          <MaterialTable materials={materials} bomRecipes={bomRecipes} onEdit={openEditModal} onDelete={(id, name) => {
-            const item = materials.find(m => m.id === id);
-            handleDeleteMaterial(id, name, item?.category);
-          }} />
-          
-          <StockLogTable logs={logs} onDeleteLog={handleDeleteLog} />
+          {/* 📱 모바일 확인용 요약 뷰 토글이 켜졌을 때 보여줄 카드 전용 화면 */}
+          {mobileViewMode ? (
+            <div className="space-y-6 animate-fade-in">
+              <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-extrabold text-indigo-900">📱 모바일 확인용 요약 모드 활성화됨</h3>
+                  <p className="text-xs text-indigo-700 mt-0.5">현장 스마트폰 화면에서 스크롤 부담 없이 핵심 재고만 한눈에 확인합니다.</p>
+                </div>
+                <button 
+                  onClick={() => setMobileViewMode(false)}
+                  className="bg-white text-indigo-700 font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs hover:bg-indigo-100 transition cursor-pointer"
+                >
+                  기본 화면으로 돌아가기
+                </button>
+              </div>
+
+              {/* 1. 재고 부족 요약 */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <span className="text-[11px] font-bold text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full uppercase">Alert Summary</span>
+                <h3 className="text-base font-extrabold text-slate-900 mt-2">🚨 긴급 발주 필요 품목 ({shortageItems.length}개)</h3>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {shortageItems.length > 0 ? (
+                    shortageItems.map((item, i) => (
+                      <div key={i} className="bg-rose-50 border border-rose-100 px-3.5 py-2 rounded-xl text-xs font-bold text-rose-700">
+                        {item.name} <span className="text-rose-500 font-normal ml-1">({item.stock}개 남음)</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400">현재 부족한 자재가 없습니다.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. 전체 자재 현재고 요약 카드 리스트 */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full uppercase">Stock Summary</span>
+                <h3 className="text-base font-extrabold text-slate-900 mt-2">📦 자재 및 완제품 현재 수량 요약</h3>
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {materials.map((m, i) => (
+                    <div key={i} className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex justify-between items-center">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">{m.name}</span>
+                        <span className="text-[11px] text-slate-400 font-mono">{m.code} ({m.category})</span>
+                      </div>
+                      <div className="text-right">
+                        {m.category === '완제품' ? (
+                          <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">조립형</span>
+                        ) : (
+                          <span className={`text-sm font-black ${(m.stock ?? 0) < (m.safe_stock ?? 1000) ? 'text-rose-600' : 'text-slate-900'}`}>
+                            {(m.stock ?? 0).toLocaleString()}개
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. 최근 입출고 내역 요약 */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full uppercase">Log Summary</span>
+                <h3 className="text-base font-extrabold text-slate-900 mt-2">📋 최근 변동 내역 (최근 5건)</h3>
+                <div className="mt-4 space-y-2">
+                  {logs.slice(0, 5).map((log, i) => (
+                    <div key={i} className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex justify-between items-center text-xs">
+                      <div>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold mr-2 ${
+                          log.type === '입고' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                        }`}>{log.type}</span>
+                        <span className="font-bold text-slate-800">{log.material_name}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className={`font-bold ${log.type === '입고' ? 'text-emerald-600' : 'text-rose-600'}`}>{log.quantity}</span>
+                        <span className="text-slate-400 text-[10px] block">{log.date}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            // PC 기본 대시보드 화면
+            <>
+              <DashboardCards materials={materials} />
+              <MaterialTable materials={materials} bomRecipes={bomRecipes} onEdit={openEditModal} onDelete={(id, name) => {
+                const item = materials.find(m => m.id === id);
+                handleDeleteMaterial(id, name, item?.category);
+              }} />
+              <StockLogTable logs={logs} onDeleteLog={handleDeleteLog} />
+            </>
+          )}
         </main>
 
         {modalType && (
