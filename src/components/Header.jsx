@@ -22,7 +22,6 @@ export default function Header() {
           </div>
           <div className="text-right">
             <p className="text-sm font-semibold text-slate-800">환영합니다. 이기범 대표님</p>
-            <p className="text-xs text-slate-400">2026년 10월 9일</p>
           </div>
         </div>
       </div>
