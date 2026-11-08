@@ -11,17 +11,15 @@ export default function App() {
   const [bomRecipes, setBomRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 모바일 확인용 뷰 토글 상태 (true면 모바일 요약 카드 모드)
+  // 모바일 확인용 뷰 토글 상태
   const [mobileViewMode, setMobileViewMode] = useState(false);
 
   const [modalType, setModalType] = useState(null);
   const [selectedMaterial, setSelectedMaterial] = useState('');
   const [quantity, setQuantity] = useState('');
-  const [refNo, setRefNo] = useState('');
 
   const [selectedProduct, setSelectedProduct] = useState('');
   const [productQty, setProductQty] = useState('');
-  const [bomRefNo, setBomRefNo] = useState('');
   const [currentBomList, setCurrentBomList] = useState([]);
 
   const [editingId, setEditingId] = useState(null);
@@ -85,9 +83,10 @@ export default function App() {
     }
   }, [selectedProduct, bomRecipes]);
 
+  // 단품 입고 / 단품 출고 처리
   async function handleSubmitStock(e) {
     e.preventDefault();
-    if (!selectedMaterial || !quantity || !refNo) {
+    if (!selectedMaterial || !quantity) {
       alert('모든 필드를 입력해 주세요.');
       return;
     }
@@ -128,7 +127,6 @@ export default function App() {
           material_name: selectedMaterial,
           quantity: `${modalType === 'inbound' ? '+' : '-'}${qtyNum.toLocaleString()}`,
           remaining: updatedStock.toLocaleString(),
-          ref: refNo,
           status: '완료'
         }
       ]);
@@ -137,7 +135,6 @@ export default function App() {
       setModalType(null);
       setSelectedMaterial('');
       setQuantity('');
-      setRefNo('');
       fetchData();
     } catch (error) {
       console.error('처리 에러:', error.message);
@@ -147,9 +144,10 @@ export default function App() {
     }
   }
 
+  // 완제품 일괄 출고 처리
   async function handleBomOutbound(e) {
     e.preventDefault();
-    if (!selectedProduct || !productQty || !bomRefNo) {
+    if (!selectedProduct || !productQty) {
       alert('모든 필드를 입력해 주세요.');
       return;
     }
@@ -185,7 +183,6 @@ export default function App() {
           material_name: selectedProduct,
           quantity: `-${qtyMultiplier.toLocaleString()}`,
           remaining: '조립출고',
-          ref: bomRefNo,
           status: '완료'
         }
       ]);
@@ -209,7 +206,6 @@ export default function App() {
             material_name: `${targetMat.name} (${selectedProduct} 부자재 소요)`,
             quantity: `-${requiredQty.toLocaleString()}`,
             remaining: newStock.toLocaleString(),
-            ref: bomRefNo,
             status: '완료'
           }
         ]);
@@ -219,7 +215,6 @@ export default function App() {
       setModalType(null);
       setSelectedProduct('');
       setProductQty('');
-      setBomRefNo('');
       fetchData();
     } catch (error) {
       console.error('BOM 출고 에러:', error.message);
@@ -418,7 +413,6 @@ export default function App() {
     );
   }
 
-  // 부족 자재 목록 계산 (완제품 제외)
   const shortageItems = materials.filter(m => 
     m.category !== '완제품' && (m.stock ?? 0) < (m.safe_stock ?? 1000)
   );
@@ -429,7 +423,6 @@ export default function App() {
         <Header />
         
         <main className="p-8 space-y-8 max-w-7xl mx-auto w-full">
-          {/* 상단 타이틀 및 액션 버튼 그룹 */}
           <div className="flex justify-between items-center flex-wrap gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <div>
               <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
@@ -440,7 +433,6 @@ export default function App() {
             </div>
             
             <div className="flex gap-2.5 flex-wrap items-center">
-              {/* 모바일 확인용 뷰 토글 버튼 */}
               <button 
                 onClick={() => setMobileViewMode(!mobileViewMode)}
                 className={`px-4 py-2.5 rounded-xl font-bold text-xs transition shadow-sm cursor-pointer flex items-center gap-1.5 ${
@@ -477,7 +469,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 📱 모바일 확인용 요약 뷰 토글이 켜졌을 때 보여줄 카드 전용 화면 */}
           {mobileViewMode ? (
             <div className="space-y-6 animate-fade-in">
               <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl flex items-center justify-between">
@@ -493,7 +484,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* 1. 재고 부족 요약 */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <span className="text-[11px] font-bold text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full uppercase">Alert Summary</span>
                 <h3 className="text-base font-extrabold text-slate-900 mt-2">🚨 긴급 발주 필요 품목 ({shortageItems.length}개)</h3>
@@ -510,7 +500,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 2. 전체 자재 현재고 요약 카드 리스트 */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full uppercase">Stock Summary</span>
                 <h3 className="text-base font-extrabold text-slate-900 mt-2">📦 자재 및 완제품 현재 수량 요약</h3>
@@ -535,7 +524,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 3. 최근 입출고 내역 요약 (2번 레이아웃 적용: 줄바꿈 & 블록화) */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full uppercase">Log Summary</span>
                 <h3 className="text-base font-extrabold text-slate-900 mt-2">📋 최근 변동 내역 (최근 5건)</h3>
@@ -556,7 +544,6 @@ export default function App() {
 
                     return (
                       <div key={i} className="bg-slate-50 border border-slate-100 p-3.5 rounded-xl space-y-1.5">
-                        {/* 1줄: 태그(뱃지) + 날짜 */}
                         <div className="flex justify-between items-center text-xs">
                           <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
                             isOutbound ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
@@ -566,7 +553,6 @@ export default function App() {
                           <span className="text-slate-400 text-[11px] font-medium">{log.date}</span>
                         </div>
 
-                        {/* 2줄: 품목명 + 변동 수량 */}
                         <div className="flex justify-between items-center gap-2 pt-0.5">
                           <span className="font-extrabold text-slate-900 text-sm leading-tight">
                             {mainName}
@@ -578,7 +564,6 @@ export default function App() {
                           </span>
                         </div>
 
-                        {/* 3줄: 부자재/용도 상세 설명 (있는 경우만 표시) */}
                         {detailText && (
                           <div className="text-[11px] text-slate-500 font-medium leading-relaxed bg-white/70 p-2 rounded-lg border border-slate-100">
                             💡 {detailText}
@@ -591,7 +576,6 @@ export default function App() {
               </div>
             </div>
           ) : (
-            // PC 기본 대시보드 화면
             <>
               <DashboardCards materials={materials} />
               <MaterialTable materials={materials} bomRecipes={bomRecipes} onEdit={openEditModal} onDelete={(id, name) => {
@@ -646,18 +630,6 @@ export default function App() {
                       placeholder="예: 10" 
                       value={productQty}
                       onChange={(e) => setProductQty(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">참조 번호 (Ref)</label>
-                    <input 
-                      type="text" 
-                      placeholder="예: #PROJ-BOM-001" 
-                      value={bomRefNo}
-                      onChange={(e) => setBomRefNo(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                       required
                     />
@@ -856,18 +828,6 @@ export default function App() {
                       placeholder="수량을 입력하세요 (예: 1000)" 
                       value={quantity}
                       onChange={(e) => setQuantity(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">참조 번호 (Ref)</label>
-                    <input 
-                      type="text" 
-                      placeholder="예: #RM1026A" 
-                      value={refNo}
-                      onChange={(e) => setRefNo(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                       required
                     />

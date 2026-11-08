@@ -22,7 +22,6 @@ export default function StockLogTable({ logs = [], onDeleteLog }) {
               <th className="py-3.5 px-6">품목명</th>
               <th className="py-3.5 px-6">변동 수량</th>
               <th className="py-3.5 px-6">최종 재고</th>
-              <th className="py-3.5 px-6">참조 (Ref)</th>
               <th className="py-3.5 px-6 text-right">삭제</th>
             </tr>
           </thead>
@@ -51,7 +50,6 @@ export default function StockLogTable({ logs = [], onDeleteLog }) {
                       {log.quantity}
                     </td>
                     <td className="py-3.5 px-6 text-slate-600 font-medium">{log.remaining}</td>
-                    <td className="py-3.5 px-6 text-slate-400 font-mono text-[11px]">{log.ref}</td>
                     <td className="py-3.5 px-6 text-right">
                       <button 
                         onClick={() => onDeleteLog(log.id)}
@@ -66,7 +64,7 @@ export default function StockLogTable({ logs = [], onDeleteLog }) {
               })
             ) : (
               <tr>
-                <td colSpan="7" className="py-10 text-center text-slate-400 font-medium">
+                <td colSpan="6" className="py-10 text-center text-slate-400 font-medium">
                   입출고 내역이 없습니다.
                 </td>
               </tr>

@@ -21,7 +21,7 @@ export default function Header() {
             <User size={20} />
           </div>
           <div className="text-right">
-            <p className="text-sm font-semibold text-slate-800">환영합니다. 이기범 대표님</p>
+            <p className="text-sm font-semibold text-slate-800">환영합니다</p>
           </div>
         </div>
       </div>

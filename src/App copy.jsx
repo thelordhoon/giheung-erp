@@ -87,7 +87,7 @@ export default function App() {
 
   async function handleSubmitStock(e) {
     e.preventDefault();
-    if (!selectedMaterial || !quantity || !refNo) {
+    if (!selectedMaterial || !quantity) {
       alert('모든 필드를 입력해 주세요.');
       return;
     }
@@ -149,7 +149,7 @@ export default function App() {
 
   async function handleBomOutbound(e) {
     e.preventDefault();
-    if (!selectedProduct || !productQty || !bomRefNo) {
+    if (!selectedProduct || !productQty) {
       alert('모든 필드를 입력해 주세요.');
       return;
     }
